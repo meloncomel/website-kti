@@ -1,40 +1,425 @@
 <!DOCTYPE html>
 <html lang="id">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sistem Bimbingan KTI</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KTI-AI: Sistem Bimbingan Pintar</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-      body {
-        font-family: 'Inter', sans-serif;
-        background-color: #f3f4f6;
-      }
-      /* Custom scrollbar for chat areas */
-      .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-      }
-      .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-      }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .loader { border-top-color: #3b82f6; animation: spinner 0.6s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
     </style>
-  <script type="importmap">
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+    "@google/genai": "https://esm.run/@google/genai",
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react/": "https://esm.sh/react@^19.2.4/"
   }
 }
 </script>
-</head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+
+    <script type="module">
+        import { GoogleGenAI } from "@google/genai";
+
+        // --- STATE APLIKASI ---
+        const state = {
+            currentUser: null,
+            activeTab: 'dashboard',
+            isSidebarOpen: true,
+            messages: [
+                { sender: 'AI', text: 'Halo! Saya asisten KTI Anda. Ada yang bisa saya bantu hari ini?', isAi: true }
+            ],
+            references: [
+                { title: 'Metode Penelitian Pendidikan', author: 'Prof. Sugiyono', year: '2021', type: 'Buku' }
+            ]
+        };
+
+        // --- AI SERVICE ---
+        async function callGemini(modelName, prompt, config = {}) {
+            const ai = new GoogleGenAI({ apiKey: "[[API_KEY_PLACEHOLDER]]" }); // process.env.API_KEY akan diinject otomatis
+            try {
+                const response = await ai.models.generateContent({
+                    model: modelName,
+                    contents: config.contents || prompt,
+                    config: {
+                        systemInstruction: config.systemInstruction || "Anda adalah mentor akademik KTI profesional.",
+                        thinkingConfig: config.useThinking ? { thinkingBudget: 15000 } : undefined
+                    }
+                });
+                return response.text;
+            } catch (error) {
+                console.error("AI Error:", error);
+                return "Maaf, terjadi kesalahan saat menghubungi AI.";
+            }
+        }
+
+        // --- UTILS ---
+        const fileToBase64 = (file) => new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve({ data: reader.result.split(',')[1], mimeType: file.type });
+        });
+
+        // --- RENDER ENGINE ---
+        function render() {
+            const root = document.getElementById('root');
+            if (!state.currentUser) {
+                root.innerHTML = renderLogin();
+                attachLoginEvents();
+            } else {
+                root.innerHTML = `
+                    <div class="flex min-h-screen">
+                        ${renderSidebar()}
+                        <main class="flex-1 p-6 md:p-10 transition-all duration-300 ${state.isSidebarOpen ? 'ml-64' : 'ml-20'}">
+                            ${renderHeader()}
+                            <div class="animate-fade-in">
+                                ${renderTabContent()}
+                            </div>
+                        </main>
+                    </div>
+                `;
+                attachAppEvents();
+            }
+            lucide.createIcons();
+        }
+
+        function renderLogin() {
+            return `
+                <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-indigo-50">
+                    <div class="bg-white max-w-md w-full rounded-3xl shadow-2xl p-10 text-center">
+                        <div class="bg-blue-600 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl rotate-3">
+                            <i data-lucide="graduation-cap" class="text-white w-10 h-10"></i>
+                        </div>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">KTI-AI Portal</h1>
+                        <p class="text-gray-500 mb-8">Platform bimbingan karya tulis ilmiah berbasis kecerdasan buatan</p>
+                        <div class="space-y-4">
+                            <button data-role="SISWA" class="login-btn w-full p-5 flex items-center justify-between bg-blue-50 text-blue-700 rounded-2xl hover:bg-blue-100 transition-all group">
+                                <span class="font-bold">Masuk sebagai Siswa</span>
+                                <i data-lucide="chevron-right" class="group-hover:translate-x-1 transition-transform"></i>
+                            </button>
+                            <button data-role="MENTOR" class="login-btn w-full p-5 flex items-center justify-between bg-purple-50 text-purple-700 rounded-2xl hover:bg-purple-100 transition-all group">
+                                <span class="font-bold">Masuk sebagai Mentor</span>
+                                <i data-lucide="chevron-right" class="group-hover:translate-x-1 transition-transform"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSidebar() {
+            const isOpen = state.isSidebarOpen;
+            const menu = [
+                { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+                { id: 'chat', label: 'Mentor AI', icon: 'message-circle' },
+                { id: 'pro', label: 'Asisten Pro', icon: 'zap' },
+                { id: 'refs', label: 'Referensi', icon: 'book-open' }
+            ];
+
+            return `
+                <aside class="fixed left-0 top-0 h-screen bg-white border-r border-gray-100 shadow-sm transition-all duration-300 z-50 flex flex-col ${isOpen ? 'w-64' : 'w-20'}">
+                    <div class="p-6 border-b border-gray-50 flex items-center ${isOpen ? 'justify-between' : 'justify-center'}">
+                        ${isOpen ? '<span class="font-black text-blue-600 text-xl">KTI-AI</span>' : '<i data-lucide="graduation-cap" class="text-blue-600"></i>'}
+                    </div>
+                    <nav class="flex-1 p-4 space-y-2">
+                        ${menu.map(item => `
+                            <button data-tab="${item.id}" class="nav-btn w-full flex items-center p-3 rounded-xl transition-all ${state.activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-500 hover:bg-gray-50'}">
+                                <i data-lucide="${item.icon}" class="w-5 h-5 flex-shrink-0"></i>
+                                ${isOpen ? `<span class="ml-4 font-semibold">${item.label}</span>` : ''}
+                            </button>
+                        `).join('')}
+                    </nav>
+                    <div class="p-4 border-t border-gray-50">
+                        <button id="logout-btn" class="w-full flex items-center p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                            <i data-lucide="log-out" class="w-5 h-5"></i>
+                            ${isOpen ? '<span class="ml-4 font-semibold">Keluar</span>' : ''}
+                        </button>
+                    </div>
+                </aside>
+            `;
+        }
+
+        function renderHeader() {
+            return `
+                <header class="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-4">
+                    <div>
+                        <h2 class="text-3xl font-black text-gray-900">Halo, ${state.currentUser.name}!</h2>
+                        <p class="text-gray-500 font-medium">Selamat datang di panel bimbingan ${state.currentUser.role.toLowerCase()}.</p>
+                    </div>
+                    <div class="flex items-center gap-3 bg-white p-2 pr-4 rounded-2xl shadow-sm border border-gray-50">
+                        <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=${state.currentUser.name}" class="w-10 h-10 rounded-xl bg-blue-100" />
+                        <div class="text-left">
+                            <p class="text-sm font-bold text-gray-800 leading-none">${state.currentUser.name}</p>
+                            <p class="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1">${state.currentUser.role}</p>
+                        </div>
+                    </div>
+                </header>
+            `;
+        }
+
+        function renderTabContent() {
+            switch (state.activeTab) {
+                case 'dashboard': return `
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                        <div class="bg-white p-6 rounded-3xl border border-gray-50 shadow-sm">
+                            <div class="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 mb-4"><i data-lucide="file-text"></i></div>
+                            <p class="text-gray-500 text-sm font-bold uppercase tracking-wider">Status Bab 1</p>
+                            <h3 class="text-2xl font-black text-gray-800 mt-1">Disetujui</h3>
+                        </div>
+                        <div class="bg-white p-6 rounded-3xl border border-gray-50 shadow-sm">
+                            <div class="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center text-orange-600 mb-4"><i data-lucide="clock"></i></div>
+                            <p class="text-gray-500 text-sm font-bold uppercase tracking-wider">Deadline Revisi</p>
+                            <h3 class="text-2xl font-black text-gray-800 mt-1">3 Hari Lagi</h3>
+                        </div>
+                        <div class="bg-white p-6 rounded-3xl border border-gray-50 shadow-sm">
+                            <div class="w-12 h-12 bg-green-100 rounded-2xl flex items-center justify-center text-green-600 mb-4"><i data-lucide="message-circle"></i></div>
+                            <p class="text-gray-500 text-sm font-bold uppercase tracking-wider">Sesi Bimbingan</p>
+                            <h3 class="text-2xl font-black text-gray-800 mt-1">12 Selesai</h3>
+                        </div>
+                    </div>
+                    <div class="bg-white p-8 rounded-3xl border border-gray-50 shadow-sm">
+                        <h3 class="text-xl font-black mb-6 flex items-center gap-2"><i data-lucide="activity" class="text-blue-600"></i> Progres Penelitian</h3>
+                        <div class="space-y-6">
+                            ${['Bab 1: Pendahuluan', 'Bab 2: Tinjauan Pustaka', 'Bab 3: Metodologi'].map((bab, i) => `
+                                <div>
+                                    <div class="flex justify-between mb-2">
+                                        <span class="font-bold text-gray-700">${bab}</span>
+                                        <span class="text-blue-600 font-black">${i === 0 ? '100%' : i === 1 ? '45%' : '0%'}</span>
+                                    </div>
+                                    <div class="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
+                                        <div class="bg-blue-600 h-full rounded-full" style="width: ${i === 0 ? '100' : i === 1 ? '45' : '0'}%"></div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                case 'chat': return `
+                    <div class="bg-white rounded-3xl border border-gray-100 h-[600px] flex flex-col shadow-xl overflow-hidden">
+                        <div class="p-6 border-b bg-white flex items-center justify-between">
+                            <div class="flex items-center gap-4">
+                                <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                                <h3 class="font-black text-gray-800">Mentor AI Virtual</h3>
+                            </div>
+                            <button id="clear-chat" class="text-gray-400 hover:text-red-500 transition-colors"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
+                        </div>
+                        <div id="chat-box" class="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50/50 scrollbar-hide">
+                            ${state.messages.map(m => `
+                                <div class="flex ${m.isAi ? 'justify-start' : 'justify-end'}">
+                                    <div class="max-w-[80%] p-4 rounded-2xl shadow-sm ${m.isAi ? 'bg-white text-gray-800 border border-gray-100' : 'bg-blue-600 text-white font-medium'}">
+                                        <p class="text-sm leading-relaxed">${m.text}</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <form id="chat-form" class="p-6 bg-white border-t border-gray-50 flex gap-3">
+                            <input id="chat-input" class="flex-1 bg-gray-50 border-none px-6 py-4 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" placeholder="Tanyakan kesulitan penulisan KTI Anda..." />
+                            <button class="bg-blue-600 text-white p-4 rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all"><i data-lucide="send" class="w-5 h-5"></i></button>
+                        </form>
+                    </div>
+                `;
+                case 'pro': return `
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[700px]">
+                        <div class="bg-white p-8 rounded-3xl border border-gray-100 shadow-xl flex flex-col">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="font-black text-xl flex items-center gap-3"><i data-lucide="zap" class="text-orange-500"></i> Asisten Pro</h3>
+                                <label class="flex items-center gap-3 cursor-pointer group">
+                                    <span class="text-xs font-black text-gray-400 group-hover:text-blue-600 transition-colors">Thinking Mode</span>
+                                    <input type="checkbox" id="thinking-mode" class="w-5 h-5 rounded-lg border-gray-200 text-blue-600 focus:ring-blue-500" />
+                                </label>
+                            </div>
+                            <div id="img-preview-box" class="hidden mb-6 relative group">
+                                <img id="img-preview" class="w-full h-48 object-cover rounded-2xl border-2 border-dashed border-gray-200" />
+                                <button id="remove-img" class="absolute top-3 right-3 bg-red-500 text-white p-2 rounded-xl shadow-lg hover:bg-red-600 transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+                            </div>
+                            <textarea id="pro-input" class="flex-1 bg-gray-50 border-none p-6 rounded-2xl mb-6 resize-none focus:ring-2 focus:ring-blue-500 outline-none font-medium text-sm" placeholder="Gunakan model Pro untuk analisis data mendalam, review literatur, atau analisis grafik penelitian..."></textarea>
+                            <div class="flex gap-4">
+                                <input type="file" id="pro-file" class="hidden" accept="image/*" />
+                                <button id="btn-file" class="bg-gray-100 text-gray-600 p-4 rounded-2xl hover:bg-gray-200 transition-colors"><i data-lucide="image"></i></button>
+                                <button id="btn-pro" class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-100 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3">
+                                    <span id="pro-btn-text">Mulai Analisis Mendalam</span>
+                                    <div id="pro-loader" class="hidden loader w-5 h-5 border-2 border-white rounded-full"></div>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="bg-gray-900 rounded-3xl p-8 overflow-y-auto text-blue-50 scrollbar-hide">
+                            <h4 class="text-gray-400 font-black text-xs uppercase tracking-widest mb-6 border-b border-gray-800 pb-4">Result Terminal Output</h4>
+                            <div id="pro-output" class="font-mono text-sm leading-relaxed whitespace-pre-wrap opacity-80">Siap untuk melakukan analisis...</div>
+                        </div>
+                    </div>
+                `;
+                case 'refs': return `
+                    <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+                        <h3 class="text-2xl font-black text-gray-800">Generator Referensi</h3>
+                        <button id="add-ref" class="bg-blue-600 text-white px-6 py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all flex items-center gap-3">
+                            <i data-lucide="sparkles"></i> Cari Sumber AI
+                        </button>
+                    </div>
+                    <div id="ref-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        ${state.references.map(r => `
+                            <div class="bg-white p-6 rounded-3xl border border-gray-50 shadow-sm hover:shadow-xl transition-all group">
+                                <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><i data-lucide="book"></i></div>
+                                <h4 class="font-black text-gray-800 text-lg mb-2">${r.title}</h4>
+                                <p class="text-gray-500 font-medium text-sm mb-6">${r.author} • ${r.year}</p>
+                                <button class="w-full py-3 border border-gray-100 rounded-xl text-xs font-bold text-gray-400 hover:text-blue-600 hover:border-blue-100 transition-colors">Unduh Referensi</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                default: return '';
+            }
+        }
+
+        // --- EVENT ATTACHERS ---
+        function attachLoginEvents() {
+            document.querySelectorAll('.login-btn').forEach(btn => {
+                btn.onclick = () => {
+                    const role = btn.dataset.role;
+                    state.currentUser = { name: role === 'SISWA' ? 'Andi Saputra' : 'Dr. Wahyudi', role };
+                    render();
+                };
+            });
+        }
+
+        function attachAppEvents() {
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.onclick = () => {
+                    state.activeTab = btn.dataset.tab;
+                    render();
+                };
+            });
+
+            document.getElementById('logout-btn').onclick = () => {
+                state.currentUser = null;
+                state.activeTab = 'dashboard';
+                render();
+            };
+
+            // Chat Events
+            const chatForm = document.getElementById('chat-form');
+            if (chatForm) {
+                chatForm.onsubmit = async (e) => {
+                    e.preventDefault();
+                    const input = document.getElementById('chat-input');
+                    const text = input.value.trim();
+                    if (!text) return;
+
+                    state.messages.push({ sender: 'USER', text, isAi: false });
+                    input.value = '';
+                    render();
+
+                    const chatBox = document.getElementById('chat-box');
+                    chatBox.scrollTop = chatBox.scrollHeight;
+
+                    const response = await callGemini('gemini-3-flash-preview', text, {
+                        systemInstruction: "Anda adalah mentor KTI yang sangat membantu. Berikan saran terstruktur."
+                    });
+                    
+                    state.messages.push({ sender: 'AI', text: response, isAi: true });
+                    render();
+                    chatBox.scrollTop = chatBox.scrollHeight;
+                };
+            }
+
+            // Pro Assistant Events
+            const btnPro = document.getElementById('btn-pro');
+            const fileInput = document.getElementById('pro-file');
+            const btnFile = document.getElementById('btn-file');
+            let base64Img = null;
+
+            if (btnFile) btnFile.onclick = () => fileInput.click();
+            if (fileInput) {
+                fileInput.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        base64Img = await fileToBase64(file);
+                        const preview = document.getElementById('img-preview');
+                        preview.src = URL.createObjectURL(file);
+                        document.getElementById('img-preview-box').classList.remove('hidden');
+                    }
+                };
+            }
+
+            if (btnPro) {
+                btnPro.onclick = async () => {
+                    const prompt = document.getElementById('pro-input').value;
+                    const useThinking = document.getElementById('thinking-mode').checked;
+                    if (!prompt && !base64Img) return;
+
+                    const btnText = document.getElementById('pro-btn-text');
+                    const loader = document.getElementById('pro-loader');
+                    const output = document.getElementById('pro-output');
+
+                    btnText.innerText = "Menganalisis...";
+                    loader.classList.remove('hidden');
+                    btnPro.disabled = true;
+
+                    let contents;
+                    if (base64Img) {
+                        contents = { parts: [{ inlineData: { data: base64Img.data, mimeType: base64Img.mimeType } }, { text: prompt || "Berikan analisis akademik mendalam tentang gambar ini." }] };
+                    } else {
+                        contents = prompt;
+                    }
+
+                    const response = await callGemini('gemini-3-pro-preview', null, {
+                        contents,
+                        useThinking,
+                        systemInstruction: "Anda adalah analis riset tingkat tinggi. Gunakan terminologi ilmiah yang tepat."
+                    });
+
+                    output.innerText = response;
+                    btnText.innerText = "Mulai Analisis Mendalam";
+                    loader.classList.add('hidden');
+                    btnPro.disabled = false;
+                };
+            }
+
+            // References Event
+            const addRefBtn = document.getElementById('add-ref');
+            if (addRefBtn) {
+                addRefBtn.onclick = async () => {
+                    const topic = prompt("Masukkan topik penelitian untuk dicarikan referensi (misal: 'Dampak AI pada psikologi remaja'):");
+                    if (!topic) return;
+
+                    addRefBtn.innerHTML = `<div class="loader w-4 h-4 border-2 border-white rounded-full"></div> Mencari...`;
+                    
+                    const promptText = `Cari 3 referensi ilmiah (Buku/Jurnal) valid tentang "${topic}". Format output HARUS JSON murni tanpa markdown: [{"title": "...", "author": "...", "year": "..."}]`;
+                    
+                    const response = await callGemini('gemini-3-flash-preview', promptText);
+                    try {
+                        const cleaned = response.replace(/```json/g, '').replace(/```/g, '').trim();
+                        const newRefs = JSON.parse(cleaned);
+                        state.references = [...newRefs, ...state.references];
+                        render();
+                    } catch (e) {
+                        alert("Gagal memformat data referensi. Silakan coba lagi.");
+                        render();
+                    }
+                };
+            }
+        }
+
+        // --- INIT ---
+        window.addEventListener('DOMContentLoaded', () => {
+            render();
+            // Injeksi API_KEY otomatis jika tersedia di environment
+            const apiKey = "[[API_KEY_PLACEHOLDER]]";
+            if (!apiKey || apiKey.includes('PLACEHOLDER')) {
+                console.warn("Peringatan: API_KEY tidak terdeteksi. Beberapa fitur AI mungkin tidak bekerja.");
+            }
+        });
+    </script>
+</body>
 </html>

@@ -1,5 +1,5 @@
 {
-  "name": "copy-of-sistem-informasi-bimbingan-kti",
+  "name": "kti-online---vanilla-js-edition",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,10 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "lucide-react": "^0.555.0",
-    "react": "^19.2.0",
-    "@google/genai": "^1.30.0",
-    "react-dom": "^19.2.0"
+    "@google/genai": "latest",
+    "react": "^19.2.4",
+    "lucide-react": "^0.563.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
